@@ -10,6 +10,7 @@ struct _wobj_aabb_node
 	int triangles_count;
 	unsigned int box_depth;
 	unsigned int split_axis;
+	float split_distance;
 	struct _wobj_aabb_node* l_child;
 	struct _wobj_aabb_node* r_child;
 };
@@ -32,6 +33,7 @@ static wobj_aabb_node* __aabb_build(wobj_float3 minb, wobj_float3 maxb, unsigned
 	aabb->l_child = NULL;
 	aabb->r_child = NULL;
 	aabb->triangles_index = NULL;
+	aabb->split_distance = 0;
 
 	return aabb;
 }
@@ -68,13 +70,13 @@ static void wobj_compute_bounds(wobj* model, wobj_float3* out_max_bounds, wobj_f
 	out_min_bounds->y = min_y;
 	out_min_bounds->z = min_z;
 }
-static void split_box(wobj_float3 min_box, wobj_float3 max_box, unsigned int split_axis , wobj_float3* out_new_upper_min, wobj_float3* out_new_lower_max)
+static void split_box(wobj_float3 min_box, wobj_float3 max_box, unsigned int split_axis , wobj_float3* out_new_upper_min, wobj_float3* out_new_lower_max, float* split_distance)
 {
 	*out_new_upper_min = min_box;
 	*out_new_lower_max = max_box;
-	float middle = (wobj_float3_get(split_axis, &min_box) + wobj_float3_get(split_axis, &max_box)) / 2.f;
-	wobj_float3_set(split_axis, out_new_upper_min, middle);
-	wobj_float3_set(split_axis, out_new_lower_max, middle);
+	*split_distance = (wobj_float3_get(split_axis, &min_box) + wobj_float3_get(split_axis, &max_box)) / 2.f;
+	wobj_float3_set(split_axis, out_new_upper_min, *split_distance);
+	wobj_float3_set(split_axis, out_new_lower_max, *split_distance);
 
 	
 }
@@ -99,6 +101,104 @@ static unsigned int is_triangle_in_box(wobj_aabb_node* box,wobj_triangle* tris, 
 	}
 	return 0;
 }
+void swap_f(float* x, float* y){
+	float temp = *x;
+	*x = *y;
+	*y= temp; 
+}
+void __intersect_r(wobj_float3 ray_origin, 
+					wobj_float3 ray_direction,
+					wobj_aabb_node* node, 
+					wobj_kdtree *kd, 
+					float t_start, 
+					float t_end, 
+					int* out_hit)
+{
+	int splitAxis = node->split_axis;
+	if (node->is_leaf)
+	{
+
+		for (int i = 0; i < node->triangles_count; i++)
+		{
+			wobj_triangle tri =kd->model->triangles[node->triangles_index[i]];
+
+			// INTERSECT and populate out_hit
+
+
+			// if (ray.startingPoint != &tri && tri.intersects(ray) == 1)
+			// {
+			// 	if (ray.intersectionType == IntersectionTypeAny)
+			// 		break;
+			// }
+			
+			//tri.intersects(ray);
+
+		}
+		return;
+	}
+	float t_split = (node->split_distance - wobj_float3_get(node->split_axis,&ray_origin)) / wobj_float3_get(node->split_axis,&ray_direction);
+
+	wobj_aabb_node* near = node->r_child;
+	wobj_aabb_node* far = node->l_child;
+	if ( wobj_float3_get(node->split_axis,&ray_origin) < node->split_distance)
+	{
+		near = node->l_child;
+		far = node->r_child;
+	}
+	
+	if (t_split > t_end || t_split < 0)
+	{
+		__intersect_r(ray_origin,ray_direction,near,kd,t_start,t_end,out_hit);
+		return;
+	}
+	else if (t_split < t_start)
+	{
+		__intersect_r(ray_origin,ray_direction,far,kd,t_start,t_end,out_hit);
+		return;
+	}
+	else
+	{
+		 __intersect_r(ray_origin,ray_direction,near,kd,t_start,t_split,out_hit);
+		if (out_hit <= (int)t_split)//TODO DEFINE OUT_HIT AND USE IT
+		{
+			return;
+		}
+		__intersect_r(ray_origin,ray_direction,far,kd,t_split,t_end,out_hit);
+	}
+}
+int ray_box_intersection(wobj_float3 ray_origin, wobj_float3 ray_direction, wobj_kdtree* kd, int* indexes){
+	float t_min, t_0Y, t_0Z;
+	float t_max, t_1Y, t_1Z;
+
+	t_min = (kd->root_node->min_bounds.x - ray_origin.x) / ray_direction.x;
+	t_max = (kd->root_node->max_bounds.x - ray_origin.x) / ray_direction.x;
+	if (t_min > t_max)swap_f(&t_min, &t_max);
+
+
+	t_0Y = (kd->root_node->min_bounds.y - ray_origin.y) / ray_direction.y;
+	t_1Y = (kd->root_node->max_bounds.y - ray_origin.y) / ray_direction.y;
+	if (t_0Y > t_1Y)swap_f(&t_0Y, &t_1Y);
+
+	if ((t_min > t_1Y) || (t_0Y > t_max))
+	{
+		return 0;
+	}
+	if (t_0Y > t_min) t_min = t_0Y;
+	if (t_1Y < t_max) t_max = t_1Y;
+
+	t_0Z = (kd->root_node->min_bounds.z - ray_origin.z) / ray_direction.z;
+	t_1Z = (kd->root_node->max_bounds.z - ray_origin.z) / ray_direction.z;
+	
+	if (t_0Z > t_1Z)swap_f(&t_0Z, &t_1Z);
+
+	if ((t_min > t_1Z) || (t_0Z > t_max))
+	{
+		return 0;
+	}
+	if (t_0Z > t_min) t_min = t_0Z;
+	if (t_1Z < t_max) t_max = t_1Z;
+
+}
 static void _recurse_aabb(wobj_aabb_node* parent, wobj_kdtree* kd)
 {
 	if (parent->box_depth >= kd->depth)
@@ -109,7 +209,7 @@ static void _recurse_aabb(wobj_aabb_node* parent, wobj_kdtree* kd)
 
 	//pick split, split in half for now
 	wobj_float3 lower_max, upper_min;
-	split_box(parent->min_bounds, parent->max_bounds, parent->split_axis, &upper_min, &lower_max);
+	split_box(parent->min_bounds, parent->max_bounds, parent->split_axis, &upper_min, &lower_max, &parent->split_distance);
 
 	parent->l_child = __aabb_build(parent->min_bounds, lower_max, parent->box_depth + 1);
 	parent->r_child = __aabb_build(upper_min, parent->max_bounds, parent->box_depth + 1);
