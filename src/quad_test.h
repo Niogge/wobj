@@ -171,8 +171,9 @@ CUNIT_TEST(test_kdtree_split_aabb)
     wobj_compute_bounds(quad, &max_b, &min_b);
     wobj_aabb_node* node = __aabb_build(min_b, max_b,5);
 
+    float split_dist_x;
     wobj_float3 upper_min_b_xsplit, lower_max_b_xsplit;
-    split_box(min_b, max_b, 0,&upper_min_b_xsplit,&lower_max_b_xsplit);
+    split_box(min_b, max_b, 0,&upper_min_b_xsplit,&lower_max_b_xsplit,&split_dist_x);
     CUNIT_FLOAT_EQ(0.0f, upper_min_b_xsplit.x)
     CUNIT_FLOAT_EQ(-1.0f, upper_min_b_xsplit.y)
     CUNIT_FLOAT_EQ(0.0f, upper_min_b_xsplit.z)
@@ -181,8 +182,9 @@ CUNIT_TEST(test_kdtree_split_aabb)
     CUNIT_FLOAT_EQ(1.0f, lower_max_b_xsplit.y)
     CUNIT_FLOAT_EQ(0.0f, lower_max_b_xsplit.z)
 
+    float split_dist_y;
     wobj_float3 upper_min_b_ysplit, lower_max_b_ysplit;
-    split_box(min_b, max_b, 1,&upper_min_b_ysplit,&lower_max_b_ysplit);
+    split_box(min_b, max_b, 1,&upper_min_b_ysplit,&lower_max_b_ysplit,&split_dist_y);
     CUNIT_FLOAT_EQ(-1.0f, upper_min_b_ysplit.x)
     CUNIT_FLOAT_EQ(0.0f, upper_min_b_ysplit.y)
     CUNIT_FLOAT_EQ(0.0f, upper_min_b_ysplit.z)
@@ -191,8 +193,10 @@ CUNIT_TEST(test_kdtree_split_aabb)
     CUNIT_FLOAT_EQ(0.0f, lower_max_b_ysplit.y)
     CUNIT_FLOAT_EQ(0.0f, lower_max_b_ysplit.z)
 
+
+    float split_dist_z;
     wobj_float3 upper_min_b_zsplit, lower_max_b_zsplit;
-    split_box(min_b, max_b, 2,&upper_min_b_zsplit,&lower_max_b_zsplit);
+    split_box(min_b, max_b, 2,&upper_min_b_zsplit,&lower_max_b_zsplit,&split_dist_z);
     CUNIT_FLOAT_EQ(-1.0f, upper_min_b_zsplit.x)
     CUNIT_FLOAT_EQ(-1.0f, upper_min_b_zsplit.y)
     CUNIT_FLOAT_EQ(0.0f, upper_min_b_zsplit.z)
