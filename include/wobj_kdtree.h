@@ -22,6 +22,10 @@ typedef struct
 	unsigned int depth;
 } wobj_kdtree;
 
+typedef struct{
+	wobj_triangle * tris;
+	float t_hit;
+} wobj_hit_result;
 
 static wobj_aabb_node* __aabb_build(wobj_float3 minb, wobj_float3 maxb, unsigned int depth)
 {
@@ -101,46 +105,72 @@ static unsigned int is_triangle_in_box(wobj_aabb_node* box,wobj_triangle* tris, 
 	}
 	return 0;
 }
-void swap_f(float* x, float* y){
+static void swap_f(float* x, float* y){
 	float temp = *x;
 	*x = *y;
 	*y= temp; 
 }
-void __intersect_r(wobj_float3 ray_origin, 
-					wobj_float3 ray_direction,
+static int rayTriangle_intersection(wobj_float3 * ray_origin, wobj_float3* ray_direction,wobj_triangle* tris, float* t_result)
+{
+	wobj_float3 e1, e2, h, s, q;
+	e1 = wobj_float3_sub(&tris->v2.position, &tris->v1.position);
+	e2 = wobj_float3_sub(&tris->v3.position, &tris->v1.position);
+	h = wobj_float3_cross(ray_direction, &e2);
+	float det = wobj_float3_dot(&h, &e1);
+
+	if (det < EPSILON)
+	{
+
+		return 0;
+	}
+	float f = 1 / det;
+	
+	s= wobj_float3_sub(ray_origin, &tris->v1.position);
+	float u = f * wobj_float3_dot(&s, &h);
+	if (u < 0.0 || u>1.0)
+	{
+		return 0;
+	}
+
+	q = wobj_float3_cross(&s, &e1);
+	float v = f * wobj_float3_dot(ray_direction, &q);
+
+	if (v < 0.0 || u + v>1.0)
+	{
+		return 0;
+	}
+	*t_result = f * wobj_float3_dot(&e2, &q);
+	return 1;
+}
+static void __intersect_r(wobj_float3* ray_origin, 
+					wobj_float3* ray_direction,
 					wobj_aabb_node* node, 
 					wobj_kdtree *kd, 
 					float t_start, 
 					float t_end, 
-					int* out_hit)
+					wobj_hit_result* hit_res)
 {
 	int splitAxis = node->split_axis;
 	if (node->is_leaf)
 	{
-
+		
 		for (int i = 0; i < node->triangles_count; i++)
 		{
-			wobj_triangle tri =kd->model->triangles[node->triangles_index[i]];
+			wobj_triangle* tri =&kd->model->triangles[node->triangles_index[i]];
 
 			// INTERSECT and populate out_hit
-
-
-			// if (ray.startingPoint != &tri && tri.intersects(ray) == 1)
-			// {
-			// 	if (ray.intersectionType == IntersectionTypeAny)
-			// 		break;
-			// }
-			
-			//tri.intersects(ray);
-
+			if(rayTriangle_intersection(ray_origin,ray_direction,tri,&hit_res->t_hit)==1 ){
+				hit_res->tris = tri;
+				break;
+			}
 		}
 		return;
 	}
-	float t_split = (node->split_distance - wobj_float3_get(node->split_axis,&ray_origin)) / wobj_float3_get(node->split_axis,&ray_direction);
+	float t_split = (node->split_distance - wobj_float3_get(node->split_axis,ray_origin)) / wobj_float3_get(node->split_axis,ray_direction);
 
 	wobj_aabb_node* near = node->r_child;
 	wobj_aabb_node* far = node->l_child;
-	if ( wobj_float3_get(node->split_axis,&ray_origin) < node->split_distance)
+	if ( wobj_float3_get(node->split_axis,ray_origin) < node->split_distance)
 	{
 		near = node->l_child;
 		far = node->r_child;
@@ -148,25 +178,24 @@ void __intersect_r(wobj_float3 ray_origin,
 	
 	if (t_split > t_end || t_split < 0)
 	{
-		__intersect_r(ray_origin,ray_direction,near,kd,t_start,t_end,out_hit);
-		return;
+		__intersect_r(ray_origin,ray_direction,near,kd,t_start,t_end,hit_res);
 	}
 	else if (t_split < t_start)
 	{
-		__intersect_r(ray_origin,ray_direction,far,kd,t_start,t_end,out_hit);
-		return;
+		__intersect_r(ray_origin,ray_direction,far,kd,t_start,t_end,hit_res);
 	}
 	else
 	{
-		 __intersect_r(ray_origin,ray_direction,near,kd,t_start,t_split,out_hit);
-		if (out_hit <= (int)t_split)//TODO DEFINE OUT_HIT AND USE IT
+		 __intersect_r(ray_origin,ray_direction,near,kd,t_start,t_split,hit_res);
+		if (hit_res->t_hit <= t_split && hit_res->t_hit>0)
 		{
 			return;
 		}
-		__intersect_r(ray_origin,ray_direction,far,kd,t_split,t_end,out_hit);
+		__intersect_r(ray_origin,ray_direction,far,kd,t_split,t_end,hit_res);
 	}
 }
-int ray_box_intersection(wobj_float3 ray_origin, wobj_float3 ray_direction, wobj_kdtree* kd, int* indexes){
+static int ray_box_intersection(wobj_float3 ray_origin, wobj_float3 ray_direction, wobj_kdtree* kd, wobj_hit_result* t_hit){
+	t_hit->t_hit = -1000.0f;
 	float t_min, t_0Y, t_0Z;
 	float t_max, t_1Y, t_1Z;
 
@@ -198,6 +227,13 @@ int ray_box_intersection(wobj_float3 ray_origin, wobj_float3 ray_direction, wobj
 	if (t_0Z > t_min) t_min = t_0Z;
 	if (t_1Z < t_max) t_max = t_1Z;
 
+	__intersect_r(&ray_origin,&ray_direction,kd->root_node,kd,0,10000.0f, t_hit);
+
+	if(t_hit->t_hit>0){
+		return 1;
+	}
+
+	return 0;
 }
 static void _recurse_aabb(wobj_aabb_node* parent, wobj_kdtree* kd)
 {
@@ -227,9 +263,9 @@ static void _recurse_aabb(wobj_aabb_node* parent, wobj_kdtree* kd)
 			rchild_count++;
 	}
 	parent->l_child->triangles_count = lchild_count;
-	parent->l_child->triangles_index = malloc(sizeof(int)*lchild_count);
+	parent->l_child->triangles_index = (int*)malloc(sizeof(int)*lchild_count);
 	parent->r_child->triangles_count = rchild_count;
-	parent->r_child->triangles_index = malloc(sizeof(int)*rchild_count);
+	parent->r_child->triangles_index = (int*)malloc(sizeof(int)*rchild_count);
 
 
 	lchild_count = 0;
